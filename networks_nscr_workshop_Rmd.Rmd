@@ -1,0 +1,364 @@
+---
+title: "Network Analysis in R (NSCR-R Workshop)"
+output: rmarkdown::github_document
+---
+
+```{r, setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Libraries
+
+```{r, warning = F, message = F}
+library(tidyverse)
+library(tidygraph)
+library(igraph)
+library(ggraph)
+library(statnet)
+```
+
+# 1. The Basics: Network Construction and Network Visualization
+
+__London gang network data from: __ http://www.socialsciences.manchester.ac.uk/mitchell-centre/research/covert-networks (via https://github.com/schochastics/networkdata)  
+
+### 1.1 One-mode network from an adjacency matrix  
+
+```{r}
+# Read a matrix in which cells indicate who is connected to whom: 
+m <- read.csv("https://raw.githubusercontent.com/Ieke/NSCR_network_workshop/main/matrix_example.csv", header=TRUE, row.names=1, check.names = F) %>%   
+  as.matrix()
+dim(m) 
+```
+
+```{r}
+# Create a network object using igraph 
+gang.network1 <- graph_from_adjacency_matrix(m, mode=c("undirected"), weighted=NULL)
+# Inspect the network
+gang.network1
+```
+
+### 1.2 One-mode network from an edgelist and attribute data 
+
+```{r}
+# Read the edgelist in which each row represents an edge from one node to another node 
+e <- read.csv("https://raw.githubusercontent.com/Ieke/NSCR_network_workshop/main/edges_example.csv", header=TRUE) 
+head(e)
+```
+
+```{r}
+# Edgelists exclude the isolates  
+# Bring in the attribute data for all nodes (including the isolates )
+a <- read.csv("https://raw.githubusercontent.com/Ieke/NSCR_network_workshop/main/attributes_example.csv", header=TRUE)
+head(a)
+```
+
+```{r}
+# Create a network object using igraph 
+gang.network2 <- graph_from_data_frame(e, directed=FALSE, vertices=a)
+gang.network2
+```
+
+```{r}
+# Plot the networks side by side (worry about prettier visualizations later)
+# Default layout: layout_nicely (chooses best layout). 
+# Connected graphs with less than 1000 vertices: default = Fruchterman-Reingold layout  
+# https://schneide.blog/tag/fruchterman-reingold/
+par(mfrow=(c(1,2)))
+plot(gang.network1)
+plot(gang.network2)
+```
+
+### 1.3 Two-mode and one-mode networks from event data  
+
+```{r}
+# Read event data  
+event <- read.csv("https://raw.githubusercontent.com/Ieke/NSCR_network_workshop/main/event_example.csv", header=T)
+unique(event$event) 
+unique(event$person)
+```
+
+```{r}
+# Transfer event data to a network format 
+g <- graph_from_data_frame(event, directed = FALSE)  
+# This is a bipartite graph: vertices can be divided into two classes
+# No vertices of the same class are connected by an edge (e.g. every person is connected to another VIA a co-arrest event)
+bipartite_mapping(g)
+```
+
+```{r}
+# Indicate type of vertex (true for person)
+V(g)$type <- bipartite_mapping(g)$type   
+# Create one-mode network
+g_one_mode <- bipartite_projection(g, which = "true", remove.type=TRUE)  
+```
+
+```{r}
+# Add a few node attributes to the bipartite graph for visualization purposes 
+# see also tidygraph below for adding node attributes
+V(g)$'event' <- ifelse(stringr::str_detect(V(g)$'name', "[a-zA-z]"), 1,0)
+V(g)$'color' <- ifelse(V(g)$'event'==1, "grey","black")
+V(g)$'shape' <- ifelse(V(g)$'event'==1, "square", "circle")
+V(g)$'labelcolor' <- ifelse(V(g)$'event'==1, "black", "white")
+```
+
+```{r}
+# Plot the networks side by side 
+# Layout kamada.kawai: based on the distance between nodes; similar nodes with small distances move in groups away from more dissimilar vertices 
+set.seed(100)
+par(mfrow=(c(1,2)))
+plot(g, vertex.color=V(g)$'color', 
+     vertex.frame.color = "white", 
+     vertex.shape = V(g)$'shape', 
+     vertex.label.color=V(g)$'labelcolor', 
+     layout=layout.kamada.kawai) # other examples for visualizations: circle; fruchterman.reingold 
+plot(g_one_mode, 
+     vertex.color = "black",
+     vertex.frame.color = "white", 
+     vertex.label.color="white",
+     layout=layout.kamada.kawai)
+```
+
+# 2. Tidy Networks 
+
+### 2.1 Optional: Pull London gang network data from an open repository with sample datasets 
+
+```{r, warning = F, message = F}
+# https://bernhardbieri.ch/blog/ergms-and-co-offending-an-applied-social-networks-project/ ### DELETE ME
+# See: https://github.com/schochastics/networkdata
+#install.packages("remotes")
+#remotes::install_github("schochastics/networkdata")
+library(networkdata)
+#data(package="networkdata") # shows all datasets available
+```
+
+```{r}
+data(covert_28) 
+london_gang <- covert_28
+# All cells in the adjacency matrix for 'london_gang' are identical to the one associated with our sample code above (same source)
+length(as_adjacency_matrix(london_gang) == as_adjacency_matrix(gang.network2)) == max(length(as_adjacency_matrix(london_gang)))
+```
+
+```{r}
+# The following code was used to create the csv files above
+#m <- as_adjacency_matrix(london_gang)
+#write.csv(m, matrix.csv")
+
+#e <- as_long_data_frame(london_gang)[,1:2]
+#write.csv(e,"edges.csv")
+
+#g_df <- data.frame(list(index=V(covert_28)$name, Age=V(covert_28)$Age, Arrests=V(covert_28)$Arrests, Convictions=V(covert_28)$Convictions, Prison=V(covert_28)$Prison, Birthplace=V(covert_28)$Birthplace))
+#write.csv(g_df,"attributes.csv")
+```
+
+### 2.2 London gang network data from readymade csv files 
+
+__Source: __ Data represents a co-offending network in a London-based inner-city street gang, 2005-2009, operating from a social housing estate. Data comes from anonimized police arrest and conviction data for ‘all confirmed’ members of the gang.  
+
+__Published in: __ 
+- Grund, T. and Densley, J. (2015) Ethnic Homophily and Triad Closure: Mapping Internal Gang Structure Using Exponential Random Graph Models. Journal of Contemporary Criminal Justice, Vol. 31, Issue 3, pp. 354-370 
+- Grund, T. and Densley, J. (2012) Ethnic Heterogeneity in the Activity and Structure of a Black Street Gang. European Journal of Criminology, Vol. 9, Issue 3, pp. 388-406.
+
+```{r}
+london_gang <- gang.network2
+```
+
+### 2.3 Working with tidy network objects 
+
+```{r}
+# Convert the igraph network object to a tidy network object so that we can adhere to the tidy functions we're used to from the tidyverse package  
+london_gang <- as_tbl_graph(london_gang)
+london_gang
+```
+
+```{r}
+# A tidygraph object responds to both tidyverse and igraph functions 
+class(london_gang)
+```
+
+### 2.4 Node attributes 
+
+```{r}
+# Need to remove isolates: Use the following code (there are no isolates in our data, so no changes will be occur)
+london_gang <- london_gang %>%
+  activate(nodes) %>%
+  filter(!node_is_isolated())
+
+# Want to activate the edges instead? 
+london_gang <- london_gang %>%
+               activate(edges)
+```
+
+```{r}
+# Activating the nodes and add attributes  
+london_gang <- london_gang %>% 
+  activate(nodes) %>% 
+  mutate(UK_birthplace = ifelse(Birthplace==3, 1,0)) 
+
+# Summarize node attributes
+london_gang %>% 
+  activate(nodes) %>% 
+  as_tibble() %>% 
+  summarise_at(c("Age", "Arrests", "Convictions", "Prison","UK_birthplace"), mean)
+```
+
+### 2.5 Visualizations 
+
+```{r}
+layout <- create_layout(london_gang, layout="igraph", algorithm = "kk")
+london_gang %>% 
+  ggraph(layout ="igraph", algorithm = "kk") + 
+  geom_edge_link(colour = "grey") + 
+  geom_node_point(aes(colour = as.factor(UK_birthplace))) +
+  ggtitle("London Gang") + guides(color=guide_legend("UK birthplace (1 = 'Yes')"))
+```
+
+# 3. Describing the Network Structure 
+
+### 3.1 Degree and Betweenness Centrality
+
+__Degree centrality__ indicates a node's centrality based on its number of connections to other nodes 
+
+__Betweenness centrality__ indicates a node's centrality based on how often it features in the shortest paths between any two other nodes. 
+
+```{r}
+# add degree centrality and betweenness centrality  
+london_gang <- london_gang %>%
+  activate(nodes) %>%
+  mutate(degree = centrality_degree(),
+         betweenness = centrality_betweenness())
+
+# summarize node degree centralities
+london_gang %>%
+  activate(nodes) %>%
+  as_tibble() %>%
+  summarize(variable = c("Degree", "Betweenness"),
+            mean = c(mean(degree), mean(betweenness)),
+            max = c(max(degree), max(betweenness)),
+            median = c(median(degree), median(betweenness)))
+
+# overall centrality in the network 
+centr_degree(london_gang)$centralization
+centr_betw(london_gang)$centralization
+```
+
+```{r}
+# Visualize nodes by their degree centrality
+plot1 <- london_gang %>% 
+  ggraph(layout = 'igraph', algorithm = 'kk') + 
+  geom_edge_link(colour = "grey") + 
+  geom_node_point(aes(size = degree, colour = degree)) + 
+  ggtitle("Degree Centrality") +
+  scale_color_continuous(guide = 'legend') 
+
+# Visualize nodes by their betweenness centrality
+plot2 <- london_gang %>% 
+  ggraph(layout = 'igraph', algorithm = 'kk') + 
+  geom_edge_link(colour = "grey") + 
+  geom_node_point(aes(size = betweenness, colour = betweenness)) + 
+  ggtitle("Betweenness Centrality") +
+  scale_color_continuous(guide = 'legend')  
+
+gridExtra::grid.arrange(plot1, plot2, ncol=2)
+```
+
+```{r}
+# Obtain the node attributes as a dataframe
+node_df <- london_gang %>%
+  activate(nodes) %>%
+  mutate(
+    node_color = ifelse(Arrests>=median(Arrests), "red", "darkgrey")
+  ) %>% as.data.frame(nodes)  
+```
+
+```{r}
+# Visualize degree betweenness centrality against each other and in comparison with a node attribute
+london_gang <- london_gang %>%
+  activate(nodes) %>%
+  mutate(degree = centrality_degree(),
+         betweenness = centrality_betweenness())
+
+ggplot(node_df, aes(x=degree, y=betweenness)) +
+    labs(x = "Degree",
+         y = "Betweenness") +
+    geom_point(size=1.5, color=node_df$node_color) + ggtitle("Degree and betweenness")
+```
+
+### 3.2 Summarizing networks 
+
+```{r}
+describe_network <- function(graph, graph_name){
+  x = tibble(
+    Density = graph.density(london_gang),
+    Degree = centr_degree(london_gang)$centralization,
+    Betweenness = centr_betw(london_gang)$centralization,
+    Closeness = centr_clo(london_gang)$centralization,
+    Transitivity = transitivity(london_gang),
+    Diameter = diameter(london_gang),
+    Mean_distance = mean_distance(london_gang))
+  x = t(x) 
+  colnames(x) <- graph_name
+  return(x)
+}
+
+describe_network(london_gang, "London Gang")
+```
+
+# 4. Explaining Tie Formation: Expontential Random Graph Models
+
+### 4.1 ERGM Package in R 
+
+```{r, warning = F, message=F}
+# Load a new package that includes the functions to estimate ERGMs 
+library(statnet)
+```
+
+### 4.2 Convert igraph object to a statnet object
+
+```{r}
+london_netw <- intergraph::asNetwork(london_gang)
+london_netw
+```
+
+### 4.3 Estimate a null model 
+
+```{r}
+### The edge term operates as the intercept; negative coefficient = overall low probaiblity for an edge to exist between any two nodes 
+model1 <- ergm(london_netw ~ edges)  
+summary(model1)
+```
+
+### 4.4 Estimate a model with node attributes 
+
+```{r}
+# Probability of tie formation between any two nodes influenced by the attributes of either node (edge attributes are possible too, when available)
+model2 <- ergm(london_netw ~ edges + nodecov("Age") +  nodefactor("UK_birthplace") + nodecov("Arrests"))  
+summary(model2)
+```
+
+### 4.5 Estimate a model with homophily attributes 
+
+```{r}
+# Probability of tie formation between any two nodes influenced by the (dis)similarity between nodes
+# NOTE: absdiff takes the absolute difference between nodes (POSITIVE coefficient = nodes that are more dissimilar have a LOWER chance to connect)
+# NOTE: nodematch evaluates whether nodes share the same binary attribute (POSITIVE coefficient = nodes that are similar have a HIGHER chance to connect)
+model3 <- ergm(london_netw ~ edges + nodecov("Age") + absdiff("Age") +  nodefactor("UK_birthplace") + nodematch("UK_birthplace") + nodecov("Arrests"))  
+summary(model3)
+```
+
+### 4.6 Estimate a model with network attributes 
+
+```{r}
+### geometrically weighted edgewise-shared partner distribution (GWESP)
+### number of triangles an edge between any two gang members closes 
+model4 <- ergm(london_netw ~ edges + nodecov("Age") + absdiff("Age") +  nodefactor("UK_birthplace") + nodematch("UK_birthplace") + esp(0))
+summary(model4) 
+```
+
+### 4.7 ERGM model evaluation 
+
+```{r}
+# Examine whether the estimated network aligns with the actual structure of the network 
+diagn <- gof(model4 ~ model + degree + espartners + triadcensus, control = control.gof.ergm(nsim=1000)) 
+plot(diagn, plotlogodds=T)
+```
+
