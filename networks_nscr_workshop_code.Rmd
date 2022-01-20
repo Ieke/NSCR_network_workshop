@@ -28,6 +28,7 @@ __London gang network data from: __ http://www.socialsciences.manchester.ac.uk/m
 m <- read.csv("https://raw.githubusercontent.com/Ieke/NSCR_network_workshop/main/matrix_example.csv", header=TRUE, row.names=1, check.names = F) %>%   
   as.matrix()
 dim(m) 
+head(m)
 ```
 
 ```{r}
@@ -63,6 +64,7 @@ gang.network2
 # Default layout: layout_nicely (chooses best layout). 
 # Connected graphs with less than 1000 vertices: default = Fruchterman-Reingold layout  
 # https://schneide.blog/tag/fruchterman-reingold/
+set.seed(1235)
 par(mfrow=(c(1,2)))
 plot(gang.network1)
 plot(gang.network2)
@@ -73,6 +75,7 @@ plot(gang.network2)
 ```{r}
 # Read event data  
 event <- read.csv("https://raw.githubusercontent.com/Ieke/NSCR_network_workshop/main/event_example.csv", header=T)
+head(event)
 unique(event$event) 
 unique(event$person)
 ```
@@ -90,6 +93,7 @@ bipartite_mapping(g)
 V(g)$type <- bipartite_mapping(g)$type   
 # Create one-mode network
 g_one_mode <- bipartite_projection(g, which = "true", remove.type=TRUE)  
+g_one_mode
 ```
 
 ```{r}
@@ -110,7 +114,7 @@ plot(g, vertex.color=V(g)$'color',
      vertex.frame.color = "white", 
      vertex.shape = V(g)$'shape', 
      vertex.label.color=V(g)$'labelcolor', 
-     layout=layout.kamada.kawai) # other examples for visualizations: circle; fruchterman.reingold 
+     layout=layout.kamada.kawai) 
 plot(g_one_mode, 
      vertex.color = "black",
      vertex.frame.color = "white", 
@@ -186,6 +190,7 @@ london_gang <- london_gang %>%
 # Want to activate the edges instead? 
 london_gang <- london_gang %>%
                activate(edges)
+london_gang
 ```
 
 ```{r}
@@ -193,6 +198,7 @@ london_gang <- london_gang %>%
 london_gang <- london_gang %>% 
   activate(nodes) %>% 
   mutate(UK_birthplace = ifelse(Birthplace==3, 1,0)) 
+london_gang
 
 # Summarize node attributes
 london_gang %>% 
